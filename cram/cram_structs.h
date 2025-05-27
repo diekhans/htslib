@@ -727,6 +727,9 @@ typedef struct cram_fd {
     pthread_mutex_t bam_list_lock;
     void *job_pending;
     int ooc;                            // out of containers.
+    char cacheDir[1024];  // directory with cached reference
+    char refUrl[4096];    // URL from which to grab reference
+    char md5Ref[128];     // MD5 sum of reference sequence
 } cram_fd;
 
 // Translation of required fields to cram data series

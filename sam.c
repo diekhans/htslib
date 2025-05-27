@@ -115,16 +115,18 @@ bam_hdr_t *bam_hdr_read(BGZF *fp)
 {
     bam_hdr_t *h;
     char buf[4];
-    int magic_len, has_EOF;
+    int magic_len;
     int32_t i, name_len, num_names = 0;
     size_t bufsize;
     ssize_t bytes;
+#ifndef UCSC_CRAM
     // check EOF
-    has_EOF = bgzf_check_EOF(fp);
+    int has_EOF = bgzf_check_EOF(fp);
     if (has_EOF < 0) {
         perror("[W::bam_hdr_read] bgzf_check_EOF");
     } else if (has_EOF == 0 && hts_verbose >= 2)
         fprintf(stderr, "[W::%s] EOF marker is absent. The input is probably truncated.\n", __func__);
+#endif
     // read "BAM1"
     magic_len = bgzf_read(fp, buf, 4);
     if (magic_len != 4 || strncmp(buf, "BAM\1", 4)) {
@@ -224,10 +226,10 @@ bam_hdr_t *bam_hdr_read(BGZF *fp)
 
 int bam_hdr_write(BGZF *fp, const bam_hdr_t *h)
 {
-    char buf[4];
+    char buf[4+1];
     int32_t i, name_len, x;
     // write "BAM1"
-    strncpy(buf, "BAM\1", 4);
+    strncpy(buf, "BAM\1", 4+1);
     bgzf_write(fp, buf, 4);
     // write plain text and the number of reference sequences
     if (fp->is_be) {
@@ -1600,7 +1602,7 @@ typedef khash_t(olap_hash) olap_hash_t;
 struct __bam_plp_t {
     mempool_t *mp;
     lbnode_t *head, *tail, *dummy;
-    int32_t tid, pos, max_tid, max_pos;
+    uint32_t tid, pos, max_tid, max_pos;
     int is_eof, max_plp, error, maxcnt;
     uint64_t id;
     bam_pileup1_t *plp;

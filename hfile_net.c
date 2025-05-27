@@ -106,7 +106,9 @@ int hfile_plugin_init_net(struct hFILE_plugin *self)
         { hopen_net, hfile_always_remote, "knetfile", 0 };
 
     self->name = "knetfile";
+    hfile_add_scheme_handler("https", &handler);
     hfile_add_scheme_handler("http", &handler);
     hfile_add_scheme_handler("ftp",  &handler);
+    hfile_add_scheme_handler("drs",  &handler);
     return 0;
 }

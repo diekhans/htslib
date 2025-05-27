@@ -60,6 +60,7 @@ typedef struct knetFile_s {
 
 	// the following are for HTTP only
 	char *path, *http_host;
+        struct udcFile *udcf;
 } knetFile;
 
 #define knet_tell(fp) ((fp)->offset)
@@ -97,5 +98,17 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
+
+// the following allow knetfile to wrap an alternate I/O library
+typedef knetFile *(*knet_alt_open_f)(const char *fn, const char *mode);
+typedef knetFile *(*knet_alt_dopen_f)(int fd, const char *mode);
+typedef off_t (*knet_alt_read_f)(knetFile *fp, void *buf, off_t len);
+typedef off_t (*knet_alt_seek_f)(knetFile *fp, int64_t off, int whence);
+typedef off_t (*knet_alt_tell_f)(knetFile *fp);
+typedef int (*knet_alt_close_f)(knetFile *fp);
+
+void knet_init_alt(knet_alt_open_f open, knet_alt_dopen_f dopen, knet_alt_read_f read,
+       knet_alt_seek_f seek, knet_alt_tell_f tell, knet_alt_close_f close);
+
 
 #endif

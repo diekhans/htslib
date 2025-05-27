@@ -28,6 +28,7 @@ DEALINGS IN THE SOFTWARE.  */
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <pthread.h>
 
 #include "htslib/hfile.h"
 #include "hfile_internal.h"
@@ -699,6 +700,9 @@ static hFILE *hopen_unknown_scheme(const char *fname, const char *mode)
     return fp;
 }
 
+/* for the initialization lock */
+static pthread_mutex_t lockInit;
+
 /* Returns the appropriate handler, or NULL if the string isn't an URL.  */
 static const struct hFILE_scheme_handler *find_scheme_handler(const char *s)
 {
@@ -717,10 +721,12 @@ static const struct hFILE_scheme_handler *find_scheme_handler(const char *s)
     if (i == 0 || i >= sizeof scheme) return NULL;
     scheme[i] = '\0';
 
+    pthread_mutex_lock(&lockInit);
     if (! schemes) {
         // TODO Wrap this in a critical section for multi-threading
         load_hfile_plugins();
     }
+    pthread_mutex_unlock(&lockInit);
 
     khint_t k = kh_get(scheme_string, schemes, scheme);
     return (k != kh_end(schemes))? kh_value(schemes, k) : &unknown_scheme;

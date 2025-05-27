@@ -2174,6 +2174,40 @@ static const char *get_cache_basedir(const char **extra) {
     return "/tmp";
 }
 
+#ifdef UCSC_CRAM
+/* put the CRAM reference sequence cachdir and the url to
+ * grab the reference sequence into the CRAM header
+ */
+void cram_set_cache_url(htsFile *cramFile, char *cacheDir, char *refUrl) {
+    cram_fd *fd = cramFile->fp.cram;
+
+    if (cacheDir)
+        strncpy(fd->cacheDir, cacheDir, sizeof(fd->cacheDir));
+    if (refUrl)
+        strncpy(fd->refUrl, refUrl, sizeof(fd->refUrl));
+    else
+        strncpy(fd->refUrl, "http://www.ebi.ac.uk:80/ena/cram/md5/%s", sizeof(fd->refUrl));
+}
+
+/* get the url from which to grab some CRAM reference sequence */
+char *cram_get_ref_url(htsFile *cramFile) {
+    cram_fd *fd = cramFile->fp.cram;
+    return fd->refUrl;
+}
+
+/* get the cache directory for this CRAM*/
+char *cram_get_cache_dir(htsFile *cramFile) {
+    cram_fd *fd = cramFile->fp.cram;
+    return fd->cacheDir;
+}
+
+/* get the MD5 sum for this CRAM */
+char *cram_get_Md5(htsFile *cramFile) {
+    cram_fd *fd = cramFile->fp.cram;
+    return fd->md5Ref;
+}
+#endif
+
 /*
  * Queries the M5 string from the header and attempts to populate the
  * reference from this using the REF_PATH environment.
@@ -2182,14 +2216,15 @@ static const char *get_cache_basedir(const char **extra) {
  *        -1 on failure
  */
 static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
-    char *ref_path = getenv("REF_PATH");
+    char *ref_path = fd->refUrl;
     SAM_hdr_type *ty;
     SAM_hdr_tag *tag;
     char path[PATH_MAX], path_tmp[PATH_MAX], cache[PATH_MAX];
-    char *local_cache = getenv("REF_CACHE");
+    char *local_cache = fd->cacheDir;
     mFILE *mf;
     int local_path = 0;
 
+    fd->md5Ref[0] = 0;
     if (fd->verbose)
 	fprintf(stderr, "cram_populate_ref on fd %p, id %d\n", fd, id);
 
@@ -2263,6 +2298,12 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
     }
 
 
+#ifdef UCSC_CRAM
+    // don't download cram reference, just pass the file name upward
+    sprintf(fd->md5Ref, "%s", tag->str+3);
+    return -1;
+#endif
+
     /* Otherwise search full REF_PATH; slower as loads entire file */
     if ((mf = open_path_mfile(tag->str+3, ref_path, NULL))) {
 	size_t sz;
@@ -2317,6 +2358,9 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
 	return 0;
     }
 
+#ifdef UCSC_CRAM
+    assert(!((local_cache && *local_cache))); 
+#endif
     /* Populate the local disk cache if required */
     if (local_cache && *local_cache) {
 	FILE *fp;

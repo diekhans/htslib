@@ -634,4 +634,9 @@ static inline void *ed_swap_8p(void *x)
 }
 #endif
 
+char *cram_get_Md5(htsFile *cramFile);
+char *cram_get_ref_url(htsFile *cramFile);
+char *cram_get_cache_dir(htsFile *cramFile);
+void cram_set_cache_url(htsFile *cramFile, char *cacheDir, char *refUrl);
+
 #endif

@@ -44,6 +44,29 @@
 #endif
 
 #include "htslib/knetfile.h"
+#ifdef KNETFILE_HOOKS
+// Static global function pointers that may be set by knet_init_alt()
+// to replace the usual knet functionality with alternate I/O implementation.
+static knet_alt_open_f alt_open = NULL;
+static knet_alt_dopen_f alt_dopen = NULL;
+static knet_alt_read_f alt_read = NULL;
+static knet_alt_seek_f alt_seek = NULL;
+static knet_alt_tell_f alt_tell = NULL;
+static knet_alt_close_f alt_close = NULL;
+
+void knet_init_alt(knet_alt_open_f open, knet_alt_dopen_f dopen, knet_alt_read_f read,
+                                   knet_alt_seek_f seek, knet_alt_tell_f tell, knet_alt_close_f close)
+
+{
+       alt_open = open;
+       alt_dopen = dopen;
+       alt_read = read;
+       alt_seek = seek;
+       alt_tell = tell;
+       alt_close = close;
+}      
+#endif 
+
 
 /* In winsock.h, the type of a socket is SOCKET, which is: "typedef
  * u_int SOCKET". An invalid SOCKET is: "(SOCKET)(~0)", or signed
@@ -175,6 +198,11 @@ static SOCKET socket_connect(const char *host, const char *port)
 	server.sin_port = htons(atoi(port));
 	if (connect(fd, (struct sockaddr*)&server, sizeof(server)) != 0) __err_connect("connect");
 	// freehostent(hp); // strangely in MSDN, hp is NOT freed (memory leak?!)
+
+	/* FOR CODE TO CONNECT SUPPORTING IPV6 and IPV4 using our net.c:
+	fd = netConnect(host, port);
+	*/
+
 	return fd;
 }
 #endif
@@ -409,7 +437,7 @@ int khttp_connect_file(knetFile *fp)
 	fp->fd = socket_connect(fp->host, fp->port);
 	buf = (char*)calloc(0x10000, 1); // FIXME: I am lazy... But in principle, 64KB should be large enough.
 	l += sprintf(buf + l, "GET %s HTTP/1.0\r\nHost: %s\r\n", fp->path, fp->http_host);
-    l += sprintf(buf + l, "Range: bytes=%lld-\r\n", (long long)fp->offset);
+	l += sprintf(buf + l, "Range: bytes=%lld-\r\n", (long long)fp->offset);
 	l += sprintf(buf + l, "\r\n");
 	if ( netwrite(fp->fd, buf, l) != l ) { free(buf); return -1; }
 	l = 0;
@@ -461,6 +489,10 @@ int khttp_connect_file(knetFile *fp)
 
 knetFile *knet_open(const char *fn, const char *mode)
 {
+#ifdef KNETFILE_HOOKS
+    if (alt_open)
+        return alt_open(fn, mode);
+#endif
 	knetFile *fp = 0;
 	if (mode[0] != 'r') {
 		fprintf(stderr, "[kftp_open] only mode \"r\" is supported.\n");
@@ -505,6 +537,11 @@ knetFile *knet_open(const char *fn, const char *mode)
 
 knetFile *knet_dopen(int fd, const char *mode)
 {
+#ifdef KNETFILE_HOOKS
+       if (alt_dopen)
+               return alt_dopen(fd, mode);
+#endif
+
 	knetFile *fp = (knetFile*)calloc(1, sizeof(knetFile));
 	fp->type = KNF_TYPE_LOCAL;
 	fp->fd = fd;
@@ -513,6 +550,11 @@ knetFile *knet_dopen(int fd, const char *mode)
 
 ssize_t knet_read(knetFile *fp, void *buf, size_t len)
 {
+#ifdef KNETFILE_HOOKS
+       if (alt_read)  
+               return alt_read(fp, buf, len);
+#endif  
+
 	off_t l = 0;
 	if (fp->fd == -1) return 0;
 	if (fp->type == KNF_TYPE_FTP) {
@@ -542,6 +584,11 @@ ssize_t knet_read(knetFile *fp, void *buf, size_t len)
 
 off_t knet_seek(knetFile *fp, off_t off, int whence)
 {
+#ifdef KNETFILE_HOOKS
+       if (alt_seek)
+               return alt_seek(fp, off, whence);
+#endif
+
 	if (whence == SEEK_SET && off == fp->offset) return 0;
 	if (fp->type == KNF_TYPE_LOCAL) {
 		/* Be aware that lseek() returns the offset after seeking, while fseek() returns zero on success. */
@@ -575,6 +622,11 @@ off_t knet_seek(knetFile *fp, off_t off, int whence)
 
 int knet_close(knetFile *fp)
 {
+#ifdef KNETFILE_HOOKS
+       if (alt_close)
+               return alt_close(fp);
+#endif    
+
 	if (fp == 0) return 0;
 	if (fp->ctrl_fd != -1) netclose(fp->ctrl_fd); // FTP specific
 	if (fp->fd != -1) {

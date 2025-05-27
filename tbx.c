@@ -148,7 +148,8 @@ static inline int get_intv(tbx_t *tbx, kstring_t *str, tbx_intv_t *intv, int is_
             case TBX_UCSC: type = "TBX_UCSC"; break;
             default: type = "TBX_GENERIC"; break;
         }
-        fprintf(stderr, "[E::%s] failed to parse %s, was wrong -p [type] used?\nThe offending line was: \"%s\"\n", __func__, type, str->s);
+        if ((str->l > 0) && (*str->s != tbx->conf.meta_char))
+            fprintf(stderr, "[E::%s] failed to parse %s, was wrong -p [type] used?\nThe offending line was: \"%s\"\n", __func__, type, str->s);
         return -1;
     }
 }

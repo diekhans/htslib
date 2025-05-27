@@ -1121,7 +1121,7 @@ struct __hts_idx_t {
     uint8_t *meta;
     struct {
         uint32_t last_bin, save_bin;
-        int last_coor, last_tid, save_tid, finished;
+        uint last_coor, last_tid, save_tid, finished;
         uint64_t last_off, save_off;
         uint64_t off_beg, off_end;
         uint64_t n_mapped, n_unmapped;
@@ -1967,12 +1967,13 @@ int hts_itr_next(BGZF *fp, hts_itr_t *iter, void *r, void *data)
  *** Retrieve index ***
  **********************/
 
-static char *test_and_fetch(const char *fn)
+static const char *test_and_fetch(const char *fn)
 {
     FILE *fp;
     if (hisremote(fn)) {
-        const int buf_size = 1 * 1024 * 1024;
         hFILE *fp_remote;
+#ifdef NOTNOW
+        const int buf_size = 1 * 1024 * 1024;
         uint8_t *buf;
         int l;
         const char *p;
@@ -1985,8 +1986,12 @@ static char *test_and_fetch(const char *fn)
             fclose(fp);
             return (char*)p;
         }
+#endif
         // Attempt to open remote file. Stay quiet on failure, it is OK to fail when trying first .csi then .tbi index.
         if ((fp_remote = hopen(fn, "r")) == 0) return 0;
+if (hclose(fp_remote) != 0) fprintf(stderr, "[E::%s] fail to close remote file '%s'\n", __func__, fn);
+return fn;
+#ifdef NOTNOW
         if ((fp = fopen(p, "w")) == 0) {
             if (hts_verbose >= 1) fprintf(stderr, "[E::%s] fail to create file '%s' in the working directory\n", __func__, p);
             hclose_abruptly(fp_remote);
@@ -1999,6 +2004,7 @@ static char *test_and_fetch(const char *fn)
         fclose(fp);
         if (hclose(fp_remote) != 0) fprintf(stderr, "[E::%s] fail to close remote file '%s'\n", __func__, fn);
         return (char*)p;
+#endif
     } else {
         if ((fp = fopen(fn, "rb")) == 0) return 0;
         fclose(fp);
@@ -2009,7 +2015,8 @@ static char *test_and_fetch(const char *fn)
 char *hts_idx_getfn(const char *fn, const char *ext)
 {
     int i, l_fn, l_ext;
-    char *fnidx, *ret;
+    char *fnidx;
+    const char *ret;
     l_fn = strlen(fn); l_ext = strlen(ext);
     fnidx = (char*)calloc(l_fn + l_ext + 1, 1);
     strcpy(fnidx, fn); strcpy(fnidx + l_fn, ext);

@@ -832,6 +832,7 @@ void bgzf_set_cache_size(BGZF *fp, int cache_size)
     if (fp) fp->cache_size = cache_size;
 }
 
+#ifndef UCSC_CRAM
 int bgzf_check_EOF(BGZF *fp)
 {
     uint8_t buf[28];
@@ -844,6 +845,7 @@ int bgzf_check_EOF(BGZF *fp)
     if ( hseek(fp->fp, offset, SEEK_SET) < 0 ) return -1;
     return (memcmp("\037\213\010\4\0\0\0\0\0\377\6\0\102\103\2\0\033\0\3\0\0\0\0\0\0\0\0\0", buf, 28) == 0)? 1 : 0;
 }
+#endif
 
 int64_t bgzf_seek(BGZF* fp, int64_t pos, int where)
 {
