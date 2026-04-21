@@ -819,6 +819,88 @@ int64_t cram_container_offset2num(cram_fd *fd, off_t pos);
 
 /**@}*/
 
+/*
+ *-----------------------------------------------------------------------------
+ * CRAM reference availability checking
+ *
+ * These functions allow callers to discover which reference sequences
+ * required by a CRAM file are not locally available, without attempting
+ * to download them.  This separates discovery from acquisition: htslib
+ * reports what is missing, and the caller decides how to obtain it
+ * (async download, work queue, user notification, etc.).
+ *
+ * Typical usage:
+ *
+ *   cram_ref_check_t *chk = cram_check_required_refs(fd, NULL, cache_dir);
+ *   if (chk && chk->n_missing > 0) {
+ *       for (int i = 0; i < chk->n_missing; i++) {
+ *           char path[PATH_MAX];
+ *           cram_expand_ref_cache_path(path, cache_dir, chk->refs[i].md5);
+ *           // ... enqueue download, notify user, etc.
+ *       }
+ *   }
+ *   cram_ref_check_free(chk);
+ */
+
+/// Information about a single missing CRAM reference sequence
+typedef struct {
+    char  md5[33];     /**< MD5 hex string from @SQ M5 tag, NUL-terminated */
+    char *seq_name;    /**< Sequence name from @SQ SN tag (allocated) */
+    int   seq_id;      /**< Reference sequence index in the header */
+} cram_ref_missing_t;
+
+/// Result of checking for missing CRAM references
+typedef struct {
+    int                 n_missing; /**< Number of missing references */
+    cram_ref_missing_t *refs;     /**< Array of missing ref info, or NULL */
+} cram_ref_check_t;
+
+/*!
+ * Check which CRAM reference sequences are not locally available.
+ *
+ * Examines \@SQ headers with M5 tags and resolves each against the
+ * local REF_CACHE and REF_PATH.  References that cannot be found
+ * locally are reported in the returned structure.  No downloads are
+ * attempted.
+ *
+ * @param fd         Open CRAM file descriptor (header must be loaded)
+ * @param ref_path   Override for REF_PATH, or NULL to use environment
+ * @param ref_cache  Override for REF_CACHE, or NULL to use environment
+ * @return           Allocated result (free with cram_ref_check_free()),
+ *                   or NULL on error (errno set)
+ */
+HTSLIB_EXPORT
+cram_ref_check_t *cram_check_required_refs(cram_fd *fd,
+                                           const char *ref_path,
+                                           const char *ref_cache);
+
+/*!
+ * Free the result of cram_check_required_refs().
+ *
+ * Safe to call with NULL.
+ */
+HTSLIB_EXPORT
+void cram_ref_check_free(cram_ref_check_t *check);
+
+/*!
+ * Expand a REF_CACHE pattern with an MD5 string to produce a file path.
+ *
+ * The REF_CACHE pattern uses printf-style substitutions:
+ *   %s   = full MD5 string
+ *   %2s  = first 2 characters of MD5, etc.
+ *
+ * This tells callers where to place a downloaded reference so that
+ * htslib will find it on subsequent opens.
+ *
+ * @param path       Output buffer (must be at least PATH_MAX bytes)
+ * @param ref_cache  REF_CACHE pattern string
+ * @param md5        MD5 hex string (32 characters)
+ * @return           0 on success, -1 if expansion exceeds PATH_MAX
+ */
+HTSLIB_EXPORT
+int cram_expand_ref_cache_path(char *path, const char *ref_cache,
+                               const char *md5);
+
 #ifdef __cplusplus
 }
 #endif

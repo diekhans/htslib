@@ -6016,3 +6016,136 @@ int cram_check_EOF(cram_fd *fd)
     buf[8] &= 0x0f;
     return (memcmp(template, buf, template_len) == 0)? 1 : 0;
 }
+
+/*
+ *-----------------------------------------------------------------------------
+ * CRAM reference availability checking
+ */
+
+int cram_expand_ref_cache_path(char *path, const char *ref_cache,
+                               const char *md5) {
+    /* Wraps the internal expand_cache_path with const-correct signature.
+     * expand_cache_path does not modify dir, despite the non-const param. */
+    return expand_cache_path(path, (char *)ref_cache, md5);
+}
+
+/* Check if a reference with the given MD5 can be found locally via
+ * REF_CACHE (stat) or REF_PATH (local file search).
+ * Returns 1 if found, 0 if not found. */
+static int cram_ref_is_local(const char *md5,
+                             const char *ref_path,
+                             const char *ref_cache) {
+    char path[PATH_MAX];
+    struct stat sb;
+
+    /* Check REF_CACHE first */
+    if (ref_cache && *ref_cache) {
+        if (expand_cache_path(path, (char *)ref_cache, md5) == 0
+            && stat(path, &sb) == 0)
+            return 1;
+    }
+
+    /* Check REF_PATH for local files */
+    if (ref_path && *ref_path) {
+        char *found = find_path(md5, ref_path);
+        if (found) {
+            free(found);
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+cram_ref_check_t *cram_check_required_refs(cram_fd *fd,
+                                           const char *ref_path,
+                                           const char *ref_cache) {
+    sam_hdr_t *hdr = cram_fd_get_header(fd);
+    if (!hdr) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    if (!ref_path)
+        ref_path = getenv("REF_PATH");
+    if (!ref_cache)
+        ref_cache = getenv("REF_CACHE");
+
+    int nref = sam_hdr_nref(hdr);
+    if (nref < 0) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    cram_ref_check_t *result = calloc(1, sizeof(*result));
+    if (!result)
+        return NULL;
+
+    /* Allocate worst-case array; we'll realloc to actual size at end */
+    if (nref > 0) {
+        result->refs = calloc(nref, sizeof(*result->refs));
+        if (!result->refs) {
+            free(result);
+            return NULL;
+        }
+    }
+
+    kstring_t md5_ks = KS_INITIALIZE;
+    kstring_t sn_ks = KS_INITIALIZE;
+
+    for (int i = 0; i < nref; i++) {
+        /* Get M5 tag for this @SQ line */
+        if (sam_hdr_find_tag_pos(hdr, "SQ", i, "M5", &md5_ks) != 0)
+            continue;  /* No M5 tag — skip */
+
+        /* Check if this ref is locally available */
+        if (cram_ref_is_local(md5_ks.s, ref_path, ref_cache))
+            continue;
+
+        /* Missing — add to result */
+        cram_ref_missing_t *m = &result->refs[result->n_missing];
+
+        /* Copy MD5 (should be 32 hex chars) */
+        size_t md5_len = ks_len(&md5_ks);
+        if (md5_len > 32) md5_len = 32;
+        memcpy(m->md5, md5_ks.s, md5_len);
+        m->md5[md5_len] = '\0';
+
+        /* Get sequence name */
+        if (sam_hdr_find_tag_pos(hdr, "SQ", i, "SN", &sn_ks) == 0)
+            m->seq_name = strdup(sn_ks.s);
+        else
+            m->seq_name = NULL;
+
+        m->seq_id = i;
+        result->n_missing++;
+    }
+
+    free(md5_ks.s);
+    free(sn_ks.s);
+
+    /* Shrink allocation to actual size */
+    if (result->n_missing == 0) {
+        free(result->refs);
+        result->refs = NULL;
+    } else if (result->n_missing < nref) {
+        cram_ref_missing_t *tmp = realloc(result->refs,
+                                          result->n_missing * sizeof(*tmp));
+        if (tmp)
+            result->refs = tmp;
+        /* If realloc fails, oversized allocation is still valid */
+    }
+
+    return result;
+}
+
+void cram_ref_check_free(cram_ref_check_t *check) {
+    if (!check)
+        return;
+    if (check->refs) {
+        for (int i = 0; i < check->n_missing; i++)
+            free(check->refs[i].seq_name);
+        free(check->refs);
+    }
+    free(check);
+}
